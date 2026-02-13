@@ -542,6 +542,10 @@ export function ChatView() {
               <p className="mt-1.5 text-xs text-gray-700">
                 or create a new one with the buttons above
               </p>
+              <p className="mt-6 text-[11px] leading-relaxed text-gray-700 max-w-[16rem]">
+                Only groups created or joined on this browser appear here.
+                Encryption keys are device-specific and don't sync between devices yet.
+              </p>
             </div>
           )}
         </main>
