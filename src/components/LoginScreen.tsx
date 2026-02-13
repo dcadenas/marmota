@@ -327,8 +327,7 @@ export function LoginScreen() {
         {/* Footer */}
         <div className="mt-8 space-y-2 text-center">
           <p className="text-[10px] leading-relaxed text-gray-600">
-            Messages are end-to-end encrypted using the Marmot protocol
-            (MLS over Nostr). This software is provided as-is with no warranty.{' '}
+            Messages are end-to-end encrypted using the{' '}
             <a
               href="https://github.com/marmot-protocol"
               target="_blank"
@@ -336,7 +335,17 @@ export function LoginScreen() {
               className="text-gray-500 hover:text-gray-400 transition-colors"
             >
               Marmot protocol
-            </a>
+            </a>{' '}
+            (MLS over Nostr).{' '}
+            <a
+              href="https://github.com/dcadenas/marmota"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-500 hover:text-gray-400 transition-colors"
+            >
+              Source code
+            </a>{' '}
+            — MIT licensed.
           </p>
           <p className="text-[11px] text-gray-700">
             <span className="font-mono text-gray-800">{__COMMIT_HASH__}</span>
