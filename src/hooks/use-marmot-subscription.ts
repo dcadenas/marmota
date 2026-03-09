@@ -11,6 +11,9 @@ import type { Unsubscribable, MarmotGroup } from 'marmot-ts';
 
 const BACKFILL_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const DEDUP_SET_MAX_SIZE = 1000;
+const RECONNECT_BASE_MS = 5_000;
+const RECONNECT_MAX_MS = 60_000;
+const MAX_RECONNECT_ATTEMPTS = 10;
 
 /**
  * Central subscription orchestrator for the Marmot protocol.
@@ -31,6 +34,9 @@ export function useMarmotSubscription() {
   const groupSubsRef = useRef<Map<string, Unsubscribable>>(new Map());
   const seenEventsRef = useRef<Set<string>>(new Set());
   const reconnectRef = useRef<(() => void) | null>(null);
+  const restartingRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reconnect = useCallback(() => {
     reconnectRef.current?.();
@@ -72,7 +78,12 @@ export function useMarmotSubscription() {
         ])
         .subscribe({
           next: (event: NostrEvent) => {
+            reconnectAttemptsRef.current = 0;
             inviteReader!.ingestEvent(event).catch(console.error);
+          },
+          error: (err: unknown) => {
+            console.error('[marmot] gift wrap subscription error:', err);
+            scheduleReconnect();
           },
         });
     }
@@ -177,6 +188,7 @@ export function useMarmotSubscription() {
         ])
         .subscribe({
           next: (event: NostrEvent) => {
+            reconnectAttemptsRef.current = 0;
             // Skip duplicates (overlap between backfill and live)
             if (isDuplicate(event.id)) return;
             addToDedup(event.id);
@@ -194,6 +206,10 @@ export function useMarmotSubscription() {
                 }).catch(console.error);
               }
             }, 100);
+          },
+          error: (err: unknown) => {
+            console.error(`[marmot] group ${group.idStr} subscription error:`, err);
+            scheduleReconnect();
           },
         });
 
@@ -214,10 +230,37 @@ export function useMarmotSubscription() {
       processInvites().catch(console.error);
     }
 
-    // Reconnection: tear down everything and re-subscribe
+    // Scheduled reconnect with exponential backoff (for unexpected disconnections)
+    function scheduleReconnect() {
+      if (restartingRef.current) return; // intentional restart in progress
+      if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        console.warn('[marmot] max reconnect attempts reached, giving up');
+        return;
+      }
+      const delay = Math.min(
+        RECONNECT_BASE_MS * Math.pow(2, reconnectAttemptsRef.current),
+        RECONNECT_MAX_MS
+      );
+      reconnectAttemptsRef.current++;
+      console.debug(`[marmot] scheduling reconnect in ${delay / 1000}s (attempt ${reconnectAttemptsRef.current})`);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        reconnectRef.current?.();
+      }, delay);
+    }
+
+    // Intentional reconnection: tear down everything and re-subscribe
     reconnectRef.current = () => {
+      restartingRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       teardownAll();
       seenEvents.clear();
+      reconnectAttemptsRef.current = 0;
+      restartingRef.current = false;
       setupSubscriptions();
     };
 
@@ -233,6 +276,10 @@ export function useMarmotSubscription() {
     return () => {
       teardownAll();
       reconnectRef.current = null;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       marmotClient.off('groupCreated', handleNewGroup);
       marmotClient.off('groupJoined', handleNewGroup);
       inviteReader.removeAllListeners('ReceivedGiftWrap');

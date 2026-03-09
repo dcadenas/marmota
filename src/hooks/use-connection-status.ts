@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+const STALE_THRESHOLD_MS = 30_000;
+
 export interface ConnectionStatus {
   isConnected: boolean;
   isReconnecting: boolean;
@@ -10,6 +12,7 @@ export function useConnectionStatus(onReconnect?: () => void): ConnectionStatus 
   const [isConnected, setIsConnected] = useState(true);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const onReconnectRef = useRef(onReconnect);
+  const hiddenAtRef = useRef<number | null>(null);
   onReconnectRef.current = onReconnect;
 
   const doReconnect = useCallback(() => {
@@ -25,10 +28,16 @@ export function useConnectionStatus(onReconnect?: () => void): ConnectionStatus 
     const handleOnline = () => doReconnect();
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        // Always restart subscriptions when tab becomes visible.
-        // Browsers throttle/kill WebSocket connections in backgrounded tabs,
-        // so we may have missed events.
+      if (document.visibilityState === 'hidden') {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      const hiddenAt = hiddenAtRef.current;
+      hiddenAtRef.current = null;
+      if (hiddenAt && Date.now() - hiddenAt >= STALE_THRESHOLD_MS) {
+        console.debug(
+          `[connection] tab hidden for ${Math.round((Date.now() - hiddenAt) / 1000)}s, forcing reconnect`
+        );
         doReconnect();
       }
     };
